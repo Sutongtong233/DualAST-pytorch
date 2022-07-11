@@ -21,6 +21,7 @@ import argparse
 from model import ArtGAN
 import torch
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import tensorboardX
 import shutil
 import prepare_dataset
@@ -29,6 +30,8 @@ from tqdm import tqdm
 import multiprocessing
 import time
 from collections import namedtuple
+import torchvision.models as models
+from networks import *
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -113,6 +116,11 @@ if __name__ == '__main__':
     alpha = 0.05
     test = torch.cat([torch.tensor(q_content.get()['image'], requires_grad=False) for i in range(opts.display_size)])    
     test = normalize_arr_of_imgs(test.cuda()).permute(0,3,1,2)
+    
+    
+  
+
+    
     torch.backends.cudnn.benchmark = True
     # Start training
     for step in tqdm(range(initial_step, opts.max_iter+1), initial=initial_step, total=opts.max_iter, ncols=64, mininterval = 2):
@@ -131,14 +139,15 @@ if __name__ == '__main__':
         # Save network weights
         if (step+1) % opts.save_freq == 0:
             trainer.save(checkpoint_directory, step)
+        # print result
         if step % 50 == 0:
             print("Iteration: %08d/%08d, dloss = %.8s, gloss = %.8s, discr_success = %.5s" % (step, opts.max_iter, trainer.discr_loss.item(), trainer.gener_loss.item(), discr_success))
         # Write images
-        if (step+1) % 100 == 0:
+        if (step+1) % 100 == 0:  
             del batch_art, batch_content
             torch.cuda.empty_cache()
             with torch.no_grad():
-                samp = trainer.sample(test)
+                samp = trainer.sample(test, batch_art)  # test: from content, batch_art: one artwork from collections
                 image_outputs = [denormalize_arr_of_imgs(samp[0]), denormalize_arr_of_imgs(samp[1])]
             write_2images(image_outputs, opts.display_size, image_directory, 'test_%08d' % (step + 1))
             del samp, image_outputs

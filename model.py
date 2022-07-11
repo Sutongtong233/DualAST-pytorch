@@ -21,15 +21,17 @@ from utils import weights_init, get_model_list, get_scheduler
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+torch.autograd.set_detect_anomaly(True)
 import os
+import torchvision.models as models
 
 class ArtGAN(nn.Module):
     def __init__(self, options):
         super(ArtGAN, self).__init__()
         # build model
-        self.encoder = encoder(options)
-        self.decoder = decoder(options)
-        self.discriminator = discriminator(options)
+        self.encoder = encoder(options).cuda()
+        self.decoder = decoder(options).cuda()
+        self.discriminator = discriminator(options).cuda()
         self.discriminator_weight = {"pred_1": 1.,
                                 "pred_2": 1.,
                                 "pred_4": 1.,
@@ -48,7 +50,7 @@ class ArtGAN(nn.Module):
         self.gen_scheduler = get_scheduler(self.gen_opt, options)
 
         # Network weight initialization
-        self.apply(weights_init(options.init))
+        self.apply(weights_init(options.init)) # TODO
         self.discriminator.apply(weights_init('gaussian'))
         self.gener_loss = torch.tensor(0.)
         self.discr_loss = torch.tensor(0.)
@@ -57,12 +59,14 @@ class ArtGAN(nn.Module):
         return
 
     def gen_update(self, batch_content, batch_output, batch_output_preds, options):
+        for key, pred in zip(batch_output_preds.keys(), batch_output_preds.values()):
+            print(key, pred.shape)
         gener_loss = sum([self.loss(pred, torch.ones_like(pred)) * self.discriminator_weight[key] for key, pred in zip(batch_output_preds.keys(), batch_output_preds.values())])
         img_loss = self.mse(F.avg_pool2d(batch_output,kernel_size=10,stride=1), F.avg_pool2d(batch_content,kernel_size=10,stride=1))
         feature_loss = self.abs(self.encoder(batch_output), self.encoder(batch_content))
         self.gener_loss = options.discr_loss_weight * gener_loss + options.transformer_loss_weight * img_loss + options.feature_loss_weight * feature_loss
         self.gener_loss.backward(retain_graph=True)
-        self.gen_opt.step()
+        # self.gen_opt.step()
         del gener_loss, img_loss, feature_loss
 
         # calculate accuracy
@@ -78,7 +82,7 @@ class ArtGAN(nn.Module):
         batch_output_discr_loss = sum([self.loss(pred, torch.zeros_like(pred)) * self.discriminator_weight[key] for key, pred in zip(batch_output_preds.keys(), batch_output_preds.values())])
         self.discr_loss = options.discr_loss_weight * (batch_art_discr_loss + batch_content_discr_loss + batch_output_discr_loss)
         self.discr_loss.backward()
-        self.dis_opt.step()
+        # self.dis_opt.step()
         del batch_art_discr_loss, batch_content_discr_loss, batch_output_discr_loss
 
         # calculate accuracy
@@ -93,7 +97,8 @@ class ArtGAN(nn.Module):
     def update(self, batch_art, batch_content, options, discr_success, alpha, update_generator):
         self.dis_opt.zero_grad()
         self.gen_opt.zero_grad()
-        batch_output = self.decoder(self.encoder(batch_content))
+        batch_output = self.decoder(self.encoder(batch_content), batch_art)  # TODO: add params
+        
         batch_output_preds = self.discriminator(batch_output)
         batch_art_preds = self.discriminator(batch_art)
         batch_content_preds = self.discriminator(batch_content)
@@ -102,18 +107,23 @@ class ArtGAN(nn.Module):
             g_acc = self.gen_update(batch_content, batch_output, batch_output_preds, options)
             discr_success = discr_success * (1. - alpha) + alpha * (1. - g_acc)
         d_acc = self.dis_update(batch_art_preds, batch_content_preds, batch_output_preds, options)
+
+        # step at last
+        self.gen_opt.step()
+        self.dis_opt.step()
+
         discr_success = discr_success * (1. - alpha) + alpha * d_acc
         del batch_output, batch_art_preds, batch_content_preds, batch_output_preds
         return discr_success
         
-    def sample(self, test):
+    def sample(self, test, artwork):
         self.eval()
         with torch.no_grad():
-            y = self.decoder(self.encoder(test))
+            y = self.decoder(self.encoder(test, artwork))
         self.train()
         return test, y
 
-    def update_learning_rate(self):
+    def update_learning_rate(self): # TODO
         if self.dis_scheduler is not None:
             self.dis_scheduler.step()
         if self.gen_scheduler is not None:
