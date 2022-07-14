@@ -19,3 +19,4 @@ discr_loss_weight: 1.           # Weight of discriminator loss # TODO
 transformer_loss_weight: 100.   # transformer_loss_weight
 feature_loss_weight: 100.       # Weight of discriminator loss
 discr_success_rate: 0.78        # Weight of discriminator loss
+vgg_loss_weight: 0.3            # Weight of VGG network loss

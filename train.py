@@ -60,7 +60,8 @@ if __name__ == '__main__':
                             discr_loss_weight \
                             transformer_loss_weight \
                             feature_loss_weight \
-                            discr_success_rate')
+                            discr_success_rate \
+                            vgg_loss_weight')
     opts = OPTIONS._make((
                             config['batch_size'], 
                             config['image_size'], 
@@ -80,7 +81,8 @@ if __name__ == '__main__':
                             config['discr_loss_weight'], 
                             config['transformer_loss_weight'],
                             config['feature_loss_weight'],
-                            config['discr_success_rate']
+                            config['discr_success_rate'],
+                            config['vgg_loss_weight']
                             ))
     trainer = ArtGAN(opts).cuda()
     initial_step = trainer.resume(checkpoint_directory, opts) if options.resume else 0
@@ -131,7 +133,8 @@ if __name__ == '__main__':
         batch_content = normalize_arr_of_imgs(torch.tensor(q_content.get()['image'], requires_grad=False).cuda()).permute(0,3,1,2).requires_grad_()
         # Training update
         trainer.update_learning_rate()
-        discr_success = trainer.update(batch_art, batch_content, opts, discr_success, alpha, discr_success >= win_rate)
+        # TODO: batch art: collections of one artist
+        discr_success = trainer.update(batch_art, batch_art, batch_content, opts, discr_success, alpha, discr_success >= win_rate)
 
         # Dump training stats in log file
         if step % 10 == 0:

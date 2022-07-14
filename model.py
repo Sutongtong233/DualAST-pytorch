@@ -54,17 +54,23 @@ class ArtGAN(nn.Module):
         self.discriminator.apply(weights_init('gaussian'))
         self.gener_loss = torch.tensor(0.)
         self.discr_loss = torch.tensor(0.)
+        self.VGG_loss = torch.tensor(0.)
 
     def forward(self):
         return
 
-    def gen_update(self, batch_content, batch_output, batch_output_preds, options):
+    def gen_update(self, batch_single_artwork, batch_content, batch_output, batch_output_preds, options):
         for key, pred in zip(batch_output_preds.keys(), batch_output_preds.values()):
             print(key, pred.shape)
+        # L_adv中的第二项，对于Encoder，越像越好，disciminator得分越接近1越好
         gener_loss = sum([self.loss(pred, torch.ones_like(pred)) * self.discriminator_weight[key] for key, pred in zip(batch_output_preds.keys(), batch_output_preds.values())])
+        # lp
         img_loss = self.mse(F.avg_pool2d(batch_output,kernel_size=10,stride=1), F.avg_pool2d(batch_content,kernel_size=10,stride=1))
+        # LSA
         feature_loss = self.abs(self.encoder(batch_output), self.encoder(batch_content))
-        self.gener_loss = options.discr_loss_weight * gener_loss + options.transformer_loss_weight * img_loss + options.feature_loss_weight * feature_loss
+        # NEW!! VGG loss network
+        self.VGG_loss = self.decoder.style_statistic_loss(batch_single_artwork, batch_output)
+        self.gener_loss = options.discr_loss_weight * gener_loss + options.transformer_loss_weight * img_loss + options.feature_loss_weight * feature_loss + options.vgg_loss_weight * self.VGG_loss
         self.gener_loss.backward(retain_graph=True)
         # self.gen_opt.step()
         del gener_loss, img_loss, feature_loss
@@ -77,6 +83,7 @@ class ArtGAN(nn.Module):
         return gener_accuracy
 
     def dis_update(self, batch_art_preds, batch_content_preds, batch_output_preds, options):
+        # 对于三个主体，判定；判定里越强越好；只有原art的分数要接近1，content和生成的内容都要接近0越好
         batch_art_discr_loss = sum([self.loss(pred, torch.ones_like(pred)) * self.discriminator_weight[key] for key, pred in zip(batch_art_preds.keys(), batch_art_preds.values())])
         batch_content_discr_loss = sum([self.loss(pred, torch.zeros_like(pred)) * self.discriminator_weight[key] for key, pred in zip(batch_content_preds.keys(), batch_content_preds.values())])
         batch_output_discr_loss = sum([self.loss(pred, torch.zeros_like(pred)) * self.discriminator_weight[key] for key, pred in zip(batch_output_preds.keys(), batch_output_preds.values())])
@@ -94,17 +101,17 @@ class ArtGAN(nn.Module):
 
         return discr_accuracy
 
-    def update(self, batch_art, batch_content, options, discr_success, alpha, update_generator):
+    def update(self, batch_art, batch_single_artwork, batch_content, options, discr_success, alpha, update_generator):
         self.dis_opt.zero_grad()
         self.gen_opt.zero_grad()
-        batch_output = self.decoder(self.encoder(batch_content), batch_art)  # TODO: add params
-        
+        batch_output = self.decoder(self.encoder(batch_content), batch_single_artwork)  # decoder only use one artwork
+        # VGG loss
         batch_output_preds = self.discriminator(batch_output)
-        batch_art_preds = self.discriminator(batch_art)
+        batch_art_preds = self.discriminator(batch_art) 
         batch_content_preds = self.discriminator(batch_content)
 
         if update_generator:
-            g_acc = self.gen_update(batch_content, batch_output, batch_output_preds, options)
+            g_acc = self.gen_update(batch_single_artwork, batch_content, batch_output, batch_output_preds, options)
             discr_success = discr_success * (1. - alpha) + alpha * (1. - g_acc)
         d_acc = self.dis_update(batch_art_preds, batch_content_preds, batch_output_preds, options)
 

@@ -114,22 +114,63 @@ class decoder(nn.Module):
             x = F.relu(x)
             sf.append(nn.AdaptiveAvgPool2d(1)(x))
         return sf
+    def style_statistic_loss(self, style_image, output_image, epsilon=1e-5):
+        vgg19 = models.vgg19(pretrained=False).cuda()
+        scb_layer = [6, 11, 20, 28]
+        style_layers = []
+        output_layers = []
+        style_image_feat = style_image
+        output_layers_feat = output_image
+
+        for i in range(37):
+            style_image_feat = vgg19.features[i](style_image_feat)
+            output_layers_feat = vgg19.features[i](output_layers_feat)
+            if i in scb_layer:
+                style_layers.append(style_image_feat)
+                output_layers.append(output_layers_feat)
+        loss = 0
+        for i in range(len(style_layers)):
+            output_mean, output_var = torch.mean(output_layers[i], dim=[2,3]), torch.var(output_layers[i], dim=[2,3])
+            output_std = torch.sqrt(output_var+epsilon)
+            style_mean, style_var = torch.mean(style_layers[i], dim=[2,3]), torch.var(style_layers[i], dim=[2,3])
+            style_std = torch.sqrt(style_var+epsilon)
+            # 还有channel维度
+            mean_loss = torch.sum(torch.norm(output_mean-style_mean))
+            std_loss = torch.sum(torch.norm(output_std-style_std))
+            loss += mean_loss+std_loss
+        loss = loss/len(style_layers)
+        return loss
+
+
+
     
-
-
-
-
     def forward(self, x, artwork):
+        '''
         # first applying SCB block
         self.eval()
-        SCB_val = self.SCB(artwork)
-
         x = self.r3(self.r2(self.r1(x)))
         x = self.r6(self.r5(self.r4(x)))
         x = self.r9(self.r8(self.r7(x)))
         x = self.u4(self.u3(self.u2(self.u1(x))))
         # x = F.pad(x, (3,3,3,3), 'reflect')
         # x = self.sig(self.c1(x))*2. - 1.
+        x = self.sig(x)*2. - 1.
+        self.train()
+        '''
+        SCB_val = self.SCB(artwork)
+        self.eval()
+        x = self.r3(self.r2(self.r1(x)))
+        x = self.r6(self.r5(self.r4(x)))
+        x = self.r9(self.r8(self.r7(x)))
+        x = x*SCB_val[3]
+        x = self.u1(x)
+        x = x*SCB_val[2]
+        x = self.u2(x)
+        x = x*SCB_val[1]
+        x = self.u3(x)
+        x = x*SCB_val[0]
+        x = self.u4(x)
+        
         x = self.sig(x)*2. - 1.
         self.train()
         return x  #
