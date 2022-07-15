@@ -115,3 +115,13 @@ def weights_init(init_type='gaussian'):
                 init.constant_(m.bias.data, 0.0)
 
     return init_fun
+ 
+def save_image_tensor(input_tensor, filename):
+    assert (len(input_tensor.shape) == 4 and input_tensor.shape[0] == 1)
+    # 复制一份
+    input_tensor = input_tensor.clone().detach()
+    # 到cpu
+    input_tensor = input_tensor.to(torch.device('cpu'))
+    # 反归一化
+    # input_tensor = unnormalize(input_tensor)
+    torchvision.utils.save_image(input_tensor, filename)

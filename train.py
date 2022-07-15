@@ -16,12 +16,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from utils import prepare_sub_folder, write_loss, get_config, write_2images, normalize_arr_of_imgs, denormalize_arr_of_imgs
+from utils import prepare_sub_folder, save_image_tensor, write_loss, get_config, write_2images, normalize_arr_of_imgs, denormalize_arr_of_imgs
 import argparse
 from model import ArtGAN
 import torch
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import tensorboardX
 import shutil
 import prepare_dataset
@@ -31,6 +31,7 @@ import multiprocessing
 import time
 from collections import namedtuple
 import torchvision.models as models
+import torchvision
 from networks import *
 
 if __name__ == '__main__':
@@ -61,7 +62,9 @@ if __name__ == '__main__':
                             transformer_loss_weight \
                             feature_loss_weight \
                             discr_success_rate \
-                            vgg_loss_weight')
+                            vgg_loss_weight \
+                            tv_loss_weight'
+                            )
     opts = OPTIONS._make((
                             config['batch_size'], 
                             config['image_size'], 
@@ -82,7 +85,8 @@ if __name__ == '__main__':
                             config['transformer_loss_weight'],
                             config['feature_loss_weight'],
                             config['discr_success_rate'],
-                            config['vgg_loss_weight']
+                            config['vgg_loss_weight'],
+                            config['tv_loss_weight']
                             ))
     trainer = ArtGAN(opts).cuda()
     initial_step = trainer.resume(checkpoint_directory, opts) if options.resume else 0
@@ -124,13 +128,19 @@ if __name__ == '__main__':
 
     
     torch.backends.cudnn.benchmark = True
+    # NEW!! select one specific artwork
+    single_artwork = normalize_arr_of_imgs(torch.tensor(q_art.get()['image'], requires_grad=False).cuda()).permute(0,3,1,2).requires_grad_()
+    save_image_tensor(single_artwork, './outputs/vangogh/images/artwork.jpg')
+    
     # Start training
     for step in tqdm(range(initial_step, opts.max_iter+1), initial=initial_step, total=opts.max_iter, ncols=64, mininterval = 2):
         # Get batch from the queue with batches q, if the last is non-empty.
         while q_art.empty() or q_content.empty():
             pass
+        # every step, different painting from collections: artist overall style
         batch_art = normalize_arr_of_imgs(torch.tensor(q_art.get()['image'], requires_grad=False).cuda()).permute(0,3,1,2).requires_grad_()
         batch_content = normalize_arr_of_imgs(torch.tensor(q_content.get()['image'], requires_grad=False).cuda()).permute(0,3,1,2).requires_grad_()
+        
         # Training update
         trainer.update_learning_rate()
         # TODO: batch art: collections of one artist

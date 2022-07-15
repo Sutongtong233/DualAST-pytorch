@@ -59,6 +59,23 @@ class ArtGAN(nn.Module):
     def forward(self):
         return
 
+    def total_variation_loss(self, img):
+        shape = img.shape
+        B = shape[0]
+        H = shape[1]
+        W = shape[2]
+        C = shape[3]
+
+        tv_y_size = (H - 1) * W * C
+        tv_x_size = H * (W - 1) * C
+        y_tv = torch.norm(img[:, 1:, :, :] - img[:, :(H - 1), :, :])
+        x_tv = torch.norm(img[:, :, 1:, :] - img[:, :, :(W - 1), :])
+
+        loss = 2 * (y_tv / tv_y_size + x_tv / tv_x_size) / B
+
+        return loss
+
+
     def gen_update(self, batch_single_artwork, batch_content, batch_output, batch_output_preds, options):
         for key, pred in zip(batch_output_preds.keys(), batch_output_preds.values()):
             print(key, pred.shape)
@@ -70,7 +87,10 @@ class ArtGAN(nn.Module):
         feature_loss = self.abs(self.encoder(batch_output), self.encoder(batch_content))
         # NEW!! VGG loss network
         self.VGG_loss = self.decoder.style_statistic_loss(batch_single_artwork, batch_output)
-        self.gener_loss = options.discr_loss_weight * gener_loss + options.transformer_loss_weight * img_loss + options.feature_loss_weight * feature_loss + options.vgg_loss_weight * self.VGG_loss
+        # output smoothing: total variance loss
+        self.tv_loss = self.total_variation_loss(batch_output)
+
+        self.gener_loss = options.discr_loss_weight * gener_loss + options.transformer_loss_weight * img_loss + options.feature_loss_weight * feature_loss + options.vgg_loss_weight * self.VGG_loss + options.tv_loss_weight * self.tv_loss
         self.gener_loss.backward(retain_graph=True)
         # self.gen_opt.step()
         del gener_loss, img_loss, feature_loss
@@ -81,7 +101,7 @@ class ArtGAN(nn.Module):
             gener_accuracy = batch_output_gener_acc / float(len(self.discriminator_weight.keys()))
         
         return gener_accuracy
-
+    
     def dis_update(self, batch_art_preds, batch_content_preds, batch_output_preds, options):
         # 对于三个主体，判定；判定里越强越好；只有原art的分数要接近1，content和生成的内容都要接近0越好
         batch_art_discr_loss = sum([self.loss(pred, torch.ones_like(pred)) * self.discriminator_weight[key] for key, pred in zip(batch_art_preds.keys(), batch_art_preds.values())])
