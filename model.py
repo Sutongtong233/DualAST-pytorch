@@ -107,7 +107,7 @@ class ArtGAN(nn.Module):
         batch_output = self.decoder(self.encoder(batch_content), batch_single_artwork)  # decoder only use one artwork
         # VGG loss
         batch_output_preds = self.discriminator(batch_output)
-        batch_art_preds = self.discriminator(batch_art) 
+        batch_art_preds = self.discriminator(batch_art) # batch artworks, multi discriminator result
         batch_content_preds = self.discriminator(batch_content)
 
         if update_generator:
